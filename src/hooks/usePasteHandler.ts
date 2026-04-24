@@ -2,12 +2,13 @@ import { basename } from 'path'
 import React from 'react'
 import { logError } from 'src/utils/log.js'
 import { useDebounceCallback } from 'usehooks-ts'
+import { useNotifications } from '../context/notifications.js'
 import type { InputEvent, Key } from '../ink.js'
 import {
   getImageFromClipboard,
   isImageFilePath,
   PASTE_THRESHOLD,
-  tryReadImageFromPath,
+  readImageFromPath,
 } from '../utils/imagePaste.js'
 import type { ImageDimensions } from '../utils/imageResizer.js'
 import { getPlatform } from '../utils/platform.js'
@@ -67,6 +68,7 @@ export function usePasteHandler({
     timeoutId: ReturnType<typeof setTimeout> | null
   }>({ chunks: [], timeoutId: null })
   const [isPasting, setIsPasting] = React.useState(false)
+  const { addNotification } = useNotifications()
   const isMountedRef = React.useRef(true)
   // Mirrors pasteState.timeoutId but updated synchronously. When paste + a
   // keystroke arrive in the same stdin chunk, both wrappedOnInput calls run
@@ -128,6 +130,7 @@ export function usePasteHandler({
           checkClipboardForImage,
           isMacOS,
           pastePendingRef,
+          addNotification,
         ) => {
           pastePendingRef.current = false
           setPasteState(({ chunks }) => {
@@ -152,11 +155,12 @@ export function usePasteHandler({
 
               // Process all image paths
               void Promise.all(
-                imagePaths.map(imagePath => tryReadImageFromPath(imagePath)),
+                imagePaths.map(imagePath => readImageFromPath(imagePath)),
               ).then(results => {
-                const validImages = results.filter(
-                  (r): r is NonNullable<typeof r> => r !== null,
-                )
+                const validImages = results
+                  .filter(r => r.ok)
+                  .map(r => r.image)
+                const failures = results.filter(r => !r.ok)
 
                 if (validImages.length > 0) {
                   // Successfully read at least one image
@@ -182,9 +186,15 @@ export function usePasteHandler({
                   // For temporary screenshot files that no longer exist, try clipboard
                   checkClipboardForImage()
                 } else {
-                  if (onPaste) {
-                    onPaste(pastedText)
-                  }
+                  const failure = failures[0]
+                  addNotification({
+                    key: 'image-paste-failed',
+                    text: failure
+                      ? `Unable to paste image: ${failure.message}`
+                      : 'Unable to paste image.',
+                    priority: 'immediate',
+                    timeoutMs: 8000,
+                  })
                   setIsPasting(false)
                 }
               })
@@ -215,9 +225,10 @@ export function usePasteHandler({
         checkClipboardForImage,
         isMacOS,
         pastePendingRef,
+        addNotification,
       )
     },
-    [checkClipboardForImage, isMacOS, onImagePaste, onPaste],
+    [addNotification, checkClipboardForImage, isMacOS, onImagePaste, onPaste],
   )
 
   // Paste detection is now done via the InputEvent's keypress.isPasted flag,

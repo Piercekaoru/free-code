@@ -10,6 +10,7 @@ import {
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../services/analytics/growthbook.js'
 import { getImageProcessor } from '../tools/FileReadTool/imageProcessor.js'
 import { logForDebugging } from './debug.js'
+import { errorMessage, getErrnoCode } from './errors.js'
 import { execFileNoThrowWithCwd } from './execFileNoThrow.js'
 import { getFsImplementation } from './fsOperations.js'
 import {
@@ -89,6 +90,19 @@ export type ImageWithDimensions = {
   mediaType: string
   dimensions?: ImageDimensions
 }
+
+type ImageFromPath = ImageWithDimensions & { path: string }
+
+export type ImagePathReadFailureReason =
+  | 'not_image_path'
+  | 'not_found'
+  | 'empty'
+  | 'processor_unavailable'
+  | 'resize_failed'
+
+export type ImagePathReadResult =
+  | { ok: true; image: ImageFromPath }
+  | { ok: false; reason: ImagePathReadFailureReason; message: string }
 
 /**
  * Check if clipboard contains an image without retrieving it.
@@ -348,18 +362,21 @@ export function asImageFilePath(text: string): string | null {
  * @param text Pasted text that might be an image filename or path
  * @returns Object containing the image path and base64 data, or null if not found
  */
-export async function tryReadImageFromPath(
+export async function readImageFromPath(
   text: string,
-): Promise<(ImageWithDimensions & { path: string }) | null> {
-  // Strip terminal added spaces or quotes to dragged in paths
+): Promise<ImagePathReadResult> {
   const cleanedPath = asImageFilePath(text)
 
   if (!cleanedPath) {
-    return null
+    return {
+      ok: false,
+      reason: 'not_image_path',
+      message: 'The pasted text is not a supported image path.',
+    }
   }
 
   const imagePath = cleanedPath
-  let imageBuffer
+  let imageBuffer: Buffer | undefined
 
   try {
     if (isAbsolute(imagePath)) {
@@ -375,42 +392,80 @@ export async function tryReadImageFromPath(
     }
   } catch (e) {
     logError(e as Error)
-    return null
+    const code = getErrnoCode(e)
+    return {
+      ok: false,
+      reason: 'not_found',
+      message:
+        code === 'EACCES' || code === 'EPERM'
+          ? `Unable to read image: permission denied (${imagePath})`
+          : `Unable to read image file: ${imagePath}`,
+    }
   }
   if (!imageBuffer) {
-    return null
+    return {
+      ok: false,
+      reason: 'not_found',
+      message: `Unable to locate image file: ${imagePath}`,
+    }
   }
   if (imageBuffer.length === 0) {
     logForDebugging(`Image file is empty: ${imagePath}`, { level: 'warn' })
-    return null
+    return {
+      ok: false,
+      reason: 'empty',
+      message: `Image file is empty: ${imagePath}`,
+    }
   }
 
-  // BMP is not supported by the API — convert to PNG via Sharp.
-  if (
-    imageBuffer.length >= 2 &&
-    imageBuffer[0] === 0x42 &&
-    imageBuffer[1] === 0x4d
-  ) {
-    const sharp = await getImageProcessor()
-    imageBuffer = await sharp(imageBuffer).png().toBuffer()
-  }
+  try {
+    // BMP is not supported by the API — convert to PNG via Sharp.
+    if (
+      imageBuffer.length >= 2 &&
+      imageBuffer[0] === 0x42 &&
+      imageBuffer[1] === 0x4d
+    ) {
+      const sharp = await getImageProcessor()
+      imageBuffer = await sharp(imageBuffer).png().toBuffer()
+    }
 
-  // Resize if needed to stay under 5MB API limit
-  // Extract extension from path for format hint
-  const ext = extname(imagePath).slice(1).toLowerCase() || 'png'
-  const resized = await maybeResizeAndDownsampleImageBuffer(
-    imageBuffer,
-    imageBuffer.length,
-    ext,
-  )
-  const base64Image = resized.buffer.toString('base64')
+    // Resize if needed to stay under 5MB API limit
+    // Extract extension from path for format hint
+    const ext = extname(imagePath).slice(1).toLowerCase() || 'png'
+    const resized = await maybeResizeAndDownsampleImageBuffer(
+      imageBuffer,
+      imageBuffer.length,
+      ext,
+    )
+    const base64Image = resized.buffer.toString('base64')
 
-  // Detect format from the actual file contents using magic bytes
-  const mediaType = detectImageFormatFromBase64(base64Image)
-  return {
-    path: imagePath,
-    base64: base64Image,
-    mediaType,
-    dimensions: resized.dimensions,
+    // Detect format from the actual file contents using magic bytes
+    const mediaType = detectImageFormatFromBase64(base64Image)
+    return {
+      ok: true,
+      image: {
+        path: imagePath,
+        base64: base64Image,
+        mediaType,
+        dimensions: resized.dimensions,
+      },
+    }
+  } catch (e) {
+    logError(e as Error)
+    const message = errorMessage(e)
+    return {
+      ok: false,
+      reason: message.includes('Image processor unavailable')
+        ? 'processor_unavailable'
+        : 'resize_failed',
+      message,
+    }
   }
+}
+
+export async function tryReadImageFromPath(
+  text: string,
+): Promise<ImageFromPath | null> {
+  const result = await readImageFromPath(text)
+  return result.ok ? result.image : null
 }

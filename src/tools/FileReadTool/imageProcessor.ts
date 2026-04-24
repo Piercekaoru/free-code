@@ -39,31 +39,38 @@ export async function getImageProcessor(): Promise<SharpFunction> {
     return imageProcessorModule.default
   }
 
+  let nativeError: unknown
   if (isInBundledMode()) {
-    // Try to load the native image processor first
     try {
-      // Use the native image processor module
       const imageProcessor = await import('image-processor-napi')
       const sharp = imageProcessor.sharp || imageProcessor.default
       imageProcessorModule = { default: sharp }
       return sharp
-    } catch {
-      // Fall back to sharp if native module is not available
-      // biome-ignore lint/suspicious/noConsole: intentional warning
-      console.warn(
-        'Native image processor not available, falling back to sharp',
-      )
+    } catch (error) {
+      nativeError = error
     }
   }
 
-  // Use sharp for non-bundled builds or as fallback.
-  // Single structural cast: our SharpFunction is a subset of sharp's actual type surface.
-  const imported = (await import(
-    'sharp'
-  )) as unknown as MaybeDefault<SharpFunction>
-  const sharp = unwrapDefault(imported)
-  imageProcessorModule = { default: sharp }
-  return sharp
+  try {
+    // Use sharp for non-bundled builds or as fallback.
+    // Single structural cast: our SharpFunction is a subset of sharp's actual type surface.
+    const imported = (await import(
+      'sharp'
+    )) as unknown as MaybeDefault<SharpFunction>
+    const sharp = unwrapDefault(imported)
+    imageProcessorModule = { default: sharp }
+    return sharp
+  } catch (sharpError) {
+    const nativeMessage =
+      nativeError instanceof Error ? nativeError.message : String(nativeError)
+    const sharpMessage =
+      sharpError instanceof Error ? sharpError.message : String(sharpError)
+    throw new Error(
+      isInBundledMode()
+        ? `Image processor unavailable: image-processor-napi failed (${nativeMessage}); sharp fallback failed (${sharpMessage})`
+        : `Image processor unavailable: sharp failed (${sharpMessage})`,
+    )
+  }
 }
 
 /**
