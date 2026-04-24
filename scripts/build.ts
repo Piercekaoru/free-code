@@ -72,6 +72,12 @@ function getDevVersion(baseVersion: string): string {
   return `${baseVersion}-dev.${date}.t${time}.sha${sha}`
 }
 
+function getReleaseTagVersion(): string | null {
+  const refName = process.env.GITHUB_REF_NAME ?? ''
+  const match = /^v(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/.exec(refName)
+  return match?.[1] ?? null
+}
+
 function getVersionChangelog(): string {
   return (
     runCommand(['git', 'log', '--format=%h %s', '-20']) ??
@@ -117,7 +123,8 @@ const outfile = compile
     ? './cli-dev'
     : './cli'
 const buildTime = new Date().toISOString()
-const version = dev ? getDevVersion(pkg.version) : pkg.version
+const releaseTagVersion = getReleaseTagVersion()
+const version = releaseTagVersion ?? (dev ? getDevVersion(pkg.version) : pkg.version)
 
 const outDir = dirname(outfile)
 if (outDir !== '.') {
@@ -154,7 +161,9 @@ const defines = {
     'This reconstructed source snapshot does not include Anthropic internal issue routing.',
   ),
   'MACRO.VERSION_CHANGELOG': JSON.stringify(
-    dev ? getVersionChangelog() : 'https://github.com/Piercekaoru/free-code',
+    dev && !releaseTagVersion
+      ? getVersionChangelog()
+      : 'https://github.com/Piercekaoru/free-code',
   ),
 } as const
 

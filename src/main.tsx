@@ -4359,11 +4359,15 @@ async function run(): Promise<CommanderCommand> {
   // - We perform exact string comparison (including SHA) to detect any change
   // - This ensures users always get the latest build, even when only the SHA changes
   // - UI shows both versions including build metadata for clarity
-  program.command('update').alias('upgrade').description('Check for updates and install if available').action(async () => {
+  program.command('update').alias('upgrade').description('Check for updates and install if available').option('--check', 'Only check whether an update is available').option('--version <version>', 'Install a specific GitHub release tag or version').option('--force', 'Install even when the target is not newer').action(async (options: {
+    check?: boolean;
+    version?: string;
+    force?: boolean;
+  }) => {
     const {
       update
     } = await import('src/cli/update.js');
-    await update();
+    await update(options);
   });
 
   // claude up — run the project's CLAUDE.md "# claude up" setup instructions.

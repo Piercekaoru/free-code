@@ -26,8 +26,68 @@ import { getPackageManager } from 'src/utils/nativeInstaller/packageManagers.js'
 import { writeToStdout } from 'src/utils/process.js'
 import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
+import {
+  checkGitHubReleaseUpdate,
+  installGitHubReleaseUpdate,
+} from 'src/utils/githubReleaseUpdater.js'
 
-export async function update() {
+type ArcUpdateOptions = {
+  check?: boolean
+  version?: string
+  force?: boolean
+}
+
+async function updateArcFromGitHub(options: ArcUpdateOptions = {}) {
+  writeToStdout(`Current version: ${MACRO.VERSION}\n`)
+  writeToStdout('Checking GitHub Releases for updates...\n')
+
+  if (options.check) {
+    const update = await checkGitHubReleaseUpdate({
+      version: options.version,
+      useCache: false,
+    })
+
+    if (update.updateAvailable) {
+      writeToStdout(
+        `Update available: ${update.currentVersion} -> ${update.latestVersion}\n`,
+      )
+      writeToStdout(`Asset: ${update.assetName}\n`)
+      writeToStdout('To update, run:\n')
+      writeToStdout(chalk.bold('  arc update') + '\n')
+    } else {
+      writeToStdout(chalk.green(`Arc is up to date (${update.currentVersion})`) + '\n')
+    }
+    await gracefulShutdown(0)
+  }
+
+  const result = await installGitHubReleaseUpdate({
+    version: options.version,
+    force: options.force,
+  })
+
+  writeToStdout(
+    chalk.green(
+      `Successfully updated arc from ${result.currentVersion} to ${result.latestVersion}`,
+    ) + '\n',
+  )
+  writeToStdout(`Installed: ${result.installPath}\n`)
+  writeToStdout('Restart arc to use the new version.\n')
+  await regenerateCompletionCache().catch(() => {})
+  await gracefulShutdown(0)
+}
+
+export async function update(options: ArcUpdateOptions = {}) {
+  if (process.env.USER_TYPE !== 'ant') {
+    try {
+      await updateArcFromGitHub(options)
+    } catch (error) {
+      process.stderr.write('Error: Failed to update arc\n')
+      process.stderr.write(String(error) + '\n')
+      await gracefulShutdown(1)
+    }
+    return
+  }
+
   logEvent('tengu_update_check', {})
   writeToStdout(`Current version: ${MACRO.VERSION}\n`)
 
