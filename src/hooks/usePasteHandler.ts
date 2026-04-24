@@ -27,6 +27,29 @@ type PasteHandlerProps = {
   ) => void
 }
 
+function splitPastedPathCandidates(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .flatMap(line => {
+      const parts: string[] = []
+      let start = 0
+
+      for (let i = 0; i < line.length; i++) {
+        if (line[i] !== ' ' || line[i - 1] === '\\') continue
+
+        const next = line.slice(i + 1)
+        if (!next.match(/^(?:\/|[A-Za-z]:\\)/)) continue
+
+        parts.push(line.slice(start, i))
+        start = i + 1
+      }
+
+      parts.push(line.slice(start))
+      return parts
+    })
+    .filter(part => part.trim())
+}
+
 export function usePasteHandler({
   onPaste,
   onInput,
@@ -115,18 +138,10 @@ export function usePasteHandler({
               .replace(/\[I$/, '')
               .replace(/\[O$/, '')
 
-            // Check if the pasted text contains image file paths
-            // When dragging multiple images, they may come as:
-            // 1. Newline-separated paths (common in some terminals)
-            // 2. Space-separated paths (common when dragging from Finder)
-            // For space-separated paths, we split on spaces that precede absolute paths:
-            // - Unix: space followed by `/` (e.g., `/Users/...`)
-            // - Windows: space followed by drive letter and `:\` (e.g., `C:\Users\...`)
-            // This works because spaces within paths are escaped (e.g., `file\ name.png`)
-            const lines = pastedText
-              .split(/ (?=\/|[A-Za-z]:\\)/)
-              .flatMap(part => part.split('\n'))
-              .filter(line => line.trim())
+            // Check if the pasted text contains image file paths.
+            // Preserve escaped spaces in Finder/iTerm paths while still splitting
+            // multiple absolute paths separated by spaces or newlines.
+            const lines = splitPastedPathCandidates(pastedText)
             const imagePaths = lines.filter(line => isImageFilePath(line))
 
             if (onImagePaste && imagePaths.length > 0) {
@@ -229,14 +244,10 @@ export function usePasteHandler({
     // more in the next frame that belong with the original paste.
     // This batching number is not consistent.
 
-    // Handle potential image filenames (even if they're shorter than paste threshold)
-    // When dragging multiple images, they may come as newline-separated or
-    // space-separated paths. Split on spaces preceding absolute paths:
-    // - Unix: ` /` - Windows: ` C:\` etc.
-    const hasImageFilePath = input
-      .split(/ (?=\/|[A-Za-z]:\\)/)
-      .flatMap(part => part.split('\n'))
-      .some(line => isImageFilePath(line.trim()))
+    // Handle potential image filenames, including dragged paths with escaped spaces.
+    const hasImageFilePath = splitPastedPathCandidates(input).some(line =>
+      isImageFilePath(line.trim()),
+    )
 
     // Handle empty paste (clipboard image on macOS)
     // When the user pastes an image with Cmd+V, the terminal sends an empty
