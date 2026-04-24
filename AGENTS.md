@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a Bun-based TypeScript CLI workspace. Runtime source lives in `src/`, with the main entrypoint at `src/entrypoints/cli.tsx`. Slash commands are under `src/commands/`, agent tools under `src/tools/`, terminal UI components under `src/components/` and `src/screens/`, and shared infrastructure under `src/services/`, `src/state/`, `src/utils/`, `src/query/`, and `src/remote/`. Build logic is in `scripts/build.ts`. Static project assets are in `assets/`; generated binaries such as `cli`, `cli-dev`, and `dist/cli` should not be treated as source.
+This is a Bun-based TypeScript CLI workspace for ArcBytecode. Runtime source lives in `src/`, with the main entrypoint at `src/entrypoints/cli.tsx`. Slash commands are under `src/commands/`, agent tools under `src/tools/`, terminal UI components under `src/components/` and `src/screens/`, and shared infrastructure under `src/services/`, `src/state/`, `src/utils/`, `src/query/`, and `src/remote/`. Build logic is in `scripts/build.ts`. Static project assets are in `assets/`; generated binaries such as `cli`, `cli-dev`, and `dist/cli` should not be treated as source. Release installs expose the `arc` command.
 
 ## Build, Test, and Development Commands
 

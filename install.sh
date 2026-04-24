@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# free-code installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/paoloanzn/free-code/main/install.sh | bash
+# ArcBytecode installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/Piercekaoru/free-code/main/install.sh | bash
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,8 +12,12 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-REPO="https://github.com/paoloanzn/free-code.git"
-INSTALL_DIR="$HOME/free-code"
+REPO_OWNER="Piercekaoru"
+REPO_NAME="free-code"
+REPO="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
+INSTALL_DIR="${ARC_INSTALL_DIR:-$HOME/.arcbytecode}"
+BIN_DIR="${ARC_BIN_DIR:-$HOME/.local/bin}"
+BIN_NAME="arc"
 BUN_MIN_VERSION="1.3.11"
 
 info()  { printf "${CYAN}[*]${RESET} %s\n" "$*"; }
@@ -25,43 +29,113 @@ header() {
   echo ""
   printf "${BOLD}${CYAN}"
   cat << 'ART'
-   ___                            _
-  / _|_ __ ___  ___        ___ __| | ___
- | |_| '__/ _ \/ _ \_____ / __/ _` |/ _ \
- |  _| | |  __/  __/_____| (_| (_| |  __/
- |_| |_|  \___|\___|      \___\__,_|\___|
-
+    _             ____        _                 _
+   / \   _ __ ___| __ ) _   _| |_ ___  ___ ___ | | ___
+  / _ \ | '__/ __|  _ \| | | | __/ _ \/ __/ _ \| |/ _ \
+ / ___ \| | | (__| |_) | |_| | ||  __/ (_| (_) | |  __/
+/_/   \_\_|  \___|____/ \__, |\__\___|\___\___/|_|\___|
+                         |___/
 ART
   printf "${RESET}"
-  printf "${DIM}  The free build of Claude Code${RESET}\n"
+  printf "${DIM}  ArcBytecode CLI${RESET}\n"
   echo ""
 }
 
-# -------------------------------------------------------------------
-# System checks
-# -------------------------------------------------------------------
-
-check_os() {
+detect_platform() {
+  local os arch
   case "$(uname -s)" in
-    Darwin) OS="macos" ;;
-    Linux)  OS="linux" ;;
-    *)      fail "Unsupported OS: $(uname -s). macOS or Linux required." ;;
+    Darwin) os="darwin" ;;
+    Linux) os="linux" ;;
+    *) fail "Unsupported OS: $(uname -s). macOS or Linux required." ;;
   esac
-  ok "OS: $(uname -s) $(uname -m)"
+
+  case "$(uname -m)" in
+    arm64|aarch64) arch="arm64" ;;
+    x86_64|amd64) arch="x64" ;;
+    *) arch="unsupported" ;;
+  esac
+
+  PLATFORM="${os}-${arch}"
+  ASSET_NAME="${BIN_NAME}-${PLATFORM}"
+  ok "Platform: ${PLATFORM}"
+}
+
+release_url() {
+  local version="${ARC_VERSION:-${FREE_CODE_VERSION:-latest}}"
+  if [ "$version" = "latest" ]; then
+    printf "https://github.com/%s/%s/releases/latest/download/%s" "$REPO_OWNER" "$REPO_NAME" "$ASSET_NAME"
+  else
+    printf "https://github.com/%s/%s/releases/download/%s/%s" "$REPO_OWNER" "$REPO_NAME" "$version" "$ASSET_NAME"
+  fi
+}
+
+install_from_release() {
+  if [ "${FREE_CODE_INSTALL_FROM_SOURCE:-${ARC_INSTALL_FROM_SOURCE:-}}" = "1" ]; then
+    warn "Source install requested; skipping release download"
+    return 1
+  fi
+
+  case "$PLATFORM" in
+    darwin-arm64|darwin-x64|linux-x64) ;;
+    *)
+      warn "No prebuilt release asset for ${PLATFORM}; falling back to source build"
+      return 1
+      ;;
+  esac
+
+  local url tmp
+  url="$(release_url)"
+  tmp="$(mktemp)"
+
+  info "Downloading ${ASSET_NAME}"
+  if ! curl -fL --progress-bar "$url" -o "$tmp"; then
+    rm -f "$tmp"
+    warn "Release download failed; falling back to source build"
+    return 1
+  fi
+
+  mkdir -p "$BIN_DIR"
+  install -m 0755 "$tmp" "$BIN_DIR/$BIN_NAME"
+  rm -f "$tmp"
+  ok "Installed: $BIN_DIR/$BIN_NAME"
+  return 0
 }
 
 check_git() {
   if ! command -v git &>/dev/null; then
-    fail "git is not installed. Install it first:
+    fail "git is required for source install.
     macOS:  xcode-select --install
     Linux:  sudo apt install git  (or your distro's equivalent)"
   fi
   ok "git: $(git --version | head -1)"
 }
 
-# Compare semver: returns 0 if $1 >= $2
 version_gte() {
-  [ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]
+  awk -v current="$1" -v required="$2" '
+    BEGIN {
+      split(current, c, ".")
+      split(required, r, ".")
+      for (i = 1; i <= 3; i++) {
+        cv = c[i] + 0
+        rv = r[i] + 0
+        if (cv > rv) exit 0
+        if (cv < rv) exit 1
+      }
+      exit 0
+    }
+  '
+}
+
+install_bun() {
+  curl -fsSL https://bun.sh/install | bash
+  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+  export PATH="$BUN_INSTALL/bin:$PATH"
+  if ! command -v bun &>/dev/null; then
+    fail "bun installation succeeded but binary was not found on PATH.
+    Add this to your shell profile and restart:
+      export PATH=\"\$HOME/.bun/bin:\$PATH\""
+  fi
+  ok "bun: v$(bun --version) (just installed)"
 }
 
 check_bun() {
@@ -79,23 +153,6 @@ check_bun() {
   install_bun
 }
 
-install_bun() {
-  curl -fsSL https://bun.sh/install | bash
-  # Source the updated profile so bun is on PATH for this session
-  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-  export PATH="$BUN_INSTALL/bin:$PATH"
-  if ! command -v bun &>/dev/null; then
-    fail "bun installation succeeded but binary not found on PATH.
-    Add this to your shell profile and restart:
-      export PATH=\"\$HOME/.bun/bin:\$PATH\""
-  fi
-  ok "bun: v$(bun --version) (just installed)"
-}
-
-# -------------------------------------------------------------------
-# Clone & build
-# -------------------------------------------------------------------
-
 clone_repo() {
   if [ -d "$INSTALL_DIR" ]; then
     warn "$INSTALL_DIR already exists"
@@ -112,68 +169,51 @@ clone_repo() {
   ok "Source: $INSTALL_DIR"
 }
 
-install_deps() {
+build_from_source() {
+  check_git
+  check_bun
+  clone_repo
+
   info "Installing dependencies..."
   cd "$INSTALL_DIR"
   bun install --frozen-lockfile 2>/dev/null || bun install
-  ok "Dependencies installed"
-}
 
-build_binary() {
-  info "Building free-code (all experimental features enabled)..."
-  cd "$INSTALL_DIR"
+  info "Building ArcBytecode (all experimental features enabled)..."
   bun run build:dev:full
-  ok "Binary built: $INSTALL_DIR/cli-dev"
+
+  mkdir -p "$BIN_DIR"
+  ln -sf "$INSTALL_DIR/cli-dev" "$BIN_DIR/$BIN_NAME"
+  ok "Symlinked: $BIN_DIR/$BIN_NAME"
 }
 
-link_binary() {
-  local link_dir="$HOME/.local/bin"
-  mkdir -p "$link_dir"
-
-  ln -sf "$INSTALL_DIR/cli-dev" "$link_dir/free-code"
-  ok "Symlinked: $link_dir/free-code"
-
-  if ! echo "$PATH" | tr ':' '\n' | grep -qx "$link_dir"; then
-    warn "$link_dir is not on your PATH"
+print_path_hint() {
+  if ! echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
+    warn "$BIN_DIR is not on your PATH"
     echo ""
     printf "${YELLOW}  Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):${RESET}\n"
-    printf "${BOLD}    export PATH=\"\$HOME/.local/bin:\$PATH\"${RESET}\n"
+    printf "${BOLD}    export PATH=\"%s:\$PATH\"${RESET}\n" "$BIN_DIR"
     echo ""
   fi
 }
-
-# -------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------
 
 header
 info "Starting installation..."
 echo ""
 
-check_os
-check_git
-check_bun
-echo ""
-
-clone_repo
-install_deps
-build_binary
-link_binary
+detect_platform
+install_from_release || build_from_source
+print_path_hint
 
 echo ""
 printf "${GREEN}${BOLD}  Installation complete!${RESET}\n"
 echo ""
 printf "  ${BOLD}Run it:${RESET}\n"
-printf "    ${CYAN}free-code${RESET}                          # interactive REPL\n"
-printf "    ${CYAN}free-code -p \"your prompt\"${RESET}          # one-shot mode\n"
+printf "    ${CYAN}arc${RESET}                          # interactive REPL\n"
+printf "    ${CYAN}arc -p \"your prompt\"${RESET}          # one-shot mode\n"
 echo ""
-printf "  ${BOLD}Set your API key:${RESET}\n"
-printf "    ${CYAN}export ANTHROPIC_API_KEY=\"sk-ant-...\"${RESET}\n"
+printf "  ${BOLD}Authenticate:${RESET}\n"
+printf "    ${CYAN}arc /login${RESET}\n"
 echo ""
-printf "  ${BOLD}Or log in with Claude.ai:${RESET}\n"
-printf "    ${CYAN}free-code /login${RESET}\n"
-echo ""
-printf "  ${DIM}Source: $INSTALL_DIR${RESET}\n"
-printf "  ${DIM}Binary: $INSTALL_DIR/cli-dev${RESET}\n"
-printf "  ${DIM}Link:   ~/.local/bin/free-code${RESET}\n"
+printf "  ${DIM}Command: $BIN_DIR/$BIN_NAME${RESET}\n"
+printf "  ${DIM}Source fallback: $INSTALL_DIR${RESET}\n"
 echo ""
