@@ -2,6 +2,7 @@ import type {
   Base64ImageSource,
   ImageBlockParam,
 } from '@anthropic-ai/sdk/resources/messages.mjs'
+import { unlinkSync, writeFileSync } from 'fs'
 import {
   API_IMAGE_MAX_BASE64_SIZE,
   IMAGE_MAX_HEIGHT,
@@ -15,9 +16,11 @@ import {
   type SharpInstance,
 } from '../tools/FileReadTool/imageProcessor.js'
 import { logForDebugging } from './debug.js'
+import { execFileNoThrowWithCwd } from './execFileNoThrow.js'
 import { errorMessage } from './errors.js'
 import { formatFileSize } from './format.js'
 import { logError } from './log.js'
+import { generateTempFilePath } from './tempfile.js'
 
 type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
 
@@ -160,6 +163,154 @@ interface CompressedImageResult {
   base64: string
   mediaType: Base64ImageSource['media_type']
   originalSize: number
+}
+
+type ParsedDimensions = {
+  width: number
+  height: number
+}
+
+function getPngDimensions(imageBuffer: Buffer): ParsedDimensions | null {
+  if (
+    imageBuffer.length < 24 ||
+    imageBuffer[0] !== 0x89 ||
+    imageBuffer[1] !== 0x50 ||
+    imageBuffer[2] !== 0x4e ||
+    imageBuffer[3] !== 0x47
+  ) {
+    return null
+  }
+
+  return {
+    width: imageBuffer.readUInt32BE(16),
+    height: imageBuffer.readUInt32BE(20),
+  }
+}
+
+function calculateContainedDimensions(
+  originalWidth: number,
+  originalHeight: number,
+  maxDimension: number,
+): ParsedDimensions {
+  if (originalWidth <= maxDimension && originalHeight <= maxDimension) {
+    return { width: originalWidth, height: originalHeight }
+  }
+
+  if (originalWidth >= originalHeight) {
+    return {
+      width: maxDimension,
+      height: Math.round((originalHeight * maxDimension) / originalWidth),
+    }
+  }
+
+  return {
+    width: Math.round((originalWidth * maxDimension) / originalHeight),
+    height: maxDimension,
+  }
+}
+
+function cleanupTempFiles(paths: string[]): void {
+  for (const path of paths) {
+    try {
+      unlinkSync(path)
+    } catch {
+      // Best effort cleanup for temp files.
+    }
+  }
+}
+
+async function resizeImageWithMacOSSips(
+  imageBuffer: Buffer,
+  originalDimensions: ParsedDimensions | null,
+): Promise<ResizeResult | null> {
+  if (process.platform !== 'darwin') {
+    return null
+  }
+
+  const inputPath = generateTempFilePath('claude-image-resize-input', '.img')
+  const outputPath = generateTempFilePath('claude-image-resize-output', '.jpg')
+  const maxDimensions = [Math.max(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT), 1000]
+
+  try {
+    writeFileSync(inputPath, imageBuffer, { mode: 0o600 })
+
+    for (const maxDimension of maxDimensions) {
+      const result = await execFileNoThrowWithCwd(
+        'sips',
+        [
+          '-Z',
+          String(maxDimension),
+          '-s',
+          'format',
+          'jpeg',
+          '-s',
+          'formatOptions',
+          '75',
+          inputPath,
+          '--out',
+          outputPath,
+        ],
+        {
+          timeout: 30_000,
+          preserveOutputOnError: true,
+          cwd: undefined,
+        },
+      )
+
+      if (result.code !== 0) {
+        logForDebugging('macOS sips image resize failed', {
+          level: 'warn',
+          error: result.error,
+          stderr: result.stderr,
+        })
+        continue
+      }
+
+      const resizedBuffer = await Bun.file(outputPath).arrayBuffer()
+      const buffer = Buffer.from(resizedBuffer)
+      if (buffer.length === 0 || buffer.length > IMAGE_TARGET_RAW_SIZE) {
+        logForDebugging('macOS sips image resize output rejected', {
+          level: 'warn',
+          outputSizeBytes: buffer.length,
+          maxBytes: IMAGE_TARGET_RAW_SIZE,
+          maxDimension,
+        })
+        continue
+      }
+
+      const displayDimensions = originalDimensions
+        ? calculateContainedDimensions(
+            originalDimensions.width,
+            originalDimensions.height,
+            maxDimension,
+          )
+        : undefined
+
+      logForDebugging('Image resized with macOS sips fallback', {
+        outputSizeBytes: buffer.length,
+        maxDimension,
+      })
+
+      return {
+        buffer,
+        mediaType: 'jpeg',
+        dimensions: originalDimensions
+          ? {
+              originalWidth: originalDimensions.width,
+              originalHeight: originalDimensions.height,
+              displayWidth: displayDimensions?.width,
+              displayHeight: displayDimensions?.height,
+            }
+          : undefined,
+      }
+    }
+  } catch (error) {
+    logError(error as Error)
+  } finally {
+    cleanupTempFiles([inputPath, outputPath])
+  }
+
+  return null
 }
 
 /**
@@ -401,14 +552,11 @@ export async function maybeResizeAndDownsampleImageBuffer(
     // Size-under-5MB does not imply dimensions-under-cap. Don't return the
     // raw buffer if the PNG header says it's oversized — fall through to
     // ImageResizeError instead. PNG sig is 8 bytes, IHDR dims at 16-24.
+    const pngDimensions = getPngDimensions(imageBuffer)
     const overDim =
-      imageBuffer.length >= 24 &&
-      imageBuffer[0] === 0x89 &&
-      imageBuffer[1] === 0x50 &&
-      imageBuffer[2] === 0x4e &&
-      imageBuffer[3] === 0x47 &&
-      (imageBuffer.readUInt32BE(16) > IMAGE_MAX_WIDTH ||
-        imageBuffer.readUInt32BE(20) > IMAGE_MAX_HEIGHT)
+      pngDimensions !== null &&
+      (pngDimensions.width > IMAGE_MAX_WIDTH ||
+        pngDimensions.height > IMAGE_MAX_HEIGHT)
 
     // If original image's base64 encoding is within API limit, allow it through uncompressed
     if (base64Size <= API_IMAGE_MAX_BASE64_SIZE && !overDim) {
@@ -418,6 +566,19 @@ export async function maybeResizeAndDownsampleImageBuffer(
         error_type: errorType,
       })
       return { buffer: imageBuffer, mediaType: normalizedExt }
+    }
+
+    const sipsResized = await resizeImageWithMacOSSips(
+      imageBuffer,
+      pngDimensions,
+    )
+    if (sipsResized) {
+      logEvent('tengu_image_resize_sips_fallback', {
+        original_size_bytes: originalSize,
+        output_size_bytes: sipsResized.buffer.length,
+        error_type: errorType,
+      })
+      return sipsResized
     }
 
     // Image is too large and we failed to compress it - fail with user-friendly error
