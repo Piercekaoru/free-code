@@ -16,16 +16,12 @@
  */
 
 import { getCodexOAuthTokens } from '../../utils/auth.js'
+import { OPENAI_MODEL_LIST } from '../../utils/model/configs.js'
 
-// ── Available Codex models ──────────────────────────────────────────
-export const CODEX_MODELS = [
-  { id: 'gpt-5.2-codex', label: 'GPT-5.2 Codex', description: 'Frontier agentic coding model' },
-  { id: 'gpt-5.1-codex', label: 'GPT-5.1 Codex', description: 'Codex coding model' },
-  { id: 'gpt-5.1-codex-mini', label: 'GPT-5.1 Codex Mini', description: 'Fast Codex model' },
-  { id: 'gpt-5.1-codex-max', label: 'GPT-5.1 Codex Max', description: 'Max Codex model' },
-  { id: 'gpt-5.4', label: 'GPT-5.4', description: 'Latest GPT' },
-  { id: 'gpt-5.2', label: 'GPT-5.2', description: 'GPT-5.2' },
-] as const
+// ── Available Codex/OpenAI backend models ───────────────────────────
+export const CODEX_MODELS = OPENAI_MODEL_LIST.filter(
+  model => model.supportedInCodexAdapter,
+)
 
 export const DEFAULT_CODEX_MODEL = 'gpt-5.2-codex'
 
@@ -45,9 +41,9 @@ export function mapClaudeModelToCodex(claudeModel: string | null): string {
 }
 
 /**
- * Checks if a given model string is a valid Codex model.
+ * Checks if a given model string is accepted by the Codex/OpenAI backend adapter.
  * @param model - The model string to check
- * @returns True if the model is a Codex model, false otherwise
+ * @returns True if the model is supported by the adapter, false otherwise
  */
 export function isCodexModel(model: string): boolean {
   return CODEX_MODELS.some(m => m.id === model)

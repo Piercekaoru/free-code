@@ -31,6 +31,7 @@ import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
+import { OPENAI_MODEL_LIST, getOpenAIModelMetadata } from './configs.js'
 
 export type ModelShortName = string
 export type ModelName = string
@@ -268,15 +269,11 @@ export function firstPartyNameToCanonical(name: ModelName): ModelShortName {
   if (name.includes('claude-3-haiku')) {
     return 'claude-3-haiku'
   }
-  // OpenAI GPT models
-  if (name.includes('gpt-5.4-mini')) {
-    return 'gpt-5.4-mini'
-  }
-  if (name.includes('gpt-5.4')) {
-    return 'gpt-5.4'
-  }
-  if (name.includes('gpt-5.3-codex')) {
-    return 'gpt-5.3-codex'
+  // OpenAI/Codex models
+  for (const model of [...OPENAI_MODEL_LIST].sort((a, b) => b.id.length - a.id.length)) {
+    if (name.includes(model.id)) {
+      return model.id
+    }
   }
   const match = name.match(/(claude-(\d+-\d+-)?\w+)/)
   if (match && match[1]) {
@@ -304,7 +301,8 @@ export function getClaudeAiUserDefaultModelDescription(
   fastMode = false,
 ): string {
   if (isCodexSubscriber()) {
-    return 'GPT-5.3 Codex · Optimized for code generation and understanding'
+    const defaultModel = getOpenAIModelMetadata(getDefaultMainLoopModelSetting())
+    return defaultModel?.description ?? 'GPT-5.3 Codex · Optimized for code generation and understanding'
   }
   if (isMaxSubscriber() || isTeamPremiumSubscriber()) {
     if (isOpus1mMergeEnabled()) {
@@ -367,14 +365,9 @@ export function renderModelSetting(setting: ModelName | ModelAlias): string {
  * if the model is not recognized as a public model.
  */
 export function getPublicModelDisplayName(model: ModelName): string | null {
-  if (model.includes('gpt-') || model.includes('codex')) {
-    if (model === 'gpt-5.2-codex') return 'Codex 5.2'
-    if (model === 'gpt-5.1-codex') return 'Codex 5.1'
-    if (model === 'gpt-5.1-codex-mini') return 'Codex 5.1 Mini'
-    if (model === 'gpt-5.1-codex-max') return 'Codex 5.1 Max'
-    if (model === 'gpt-5.4') return 'GPT 5.4'
-    if (model === 'gpt-5.2') return 'GPT 5.2'
-    return model
+  const openAIModel = getOpenAIModelMetadata(model)
+  if (openAIModel) {
+    return openAIModel.displayName
   }
 
   switch (model) {
@@ -408,12 +401,6 @@ export function getPublicModelDisplayName(model: ModelName): string | null {
       return 'Haiku 4.5'
     case getModelStrings().haiku35:
       return 'Haiku 3.5'
-    case getModelStrings().gpt54:
-      return 'GPT-5.4'
-    case getModelStrings().gpt53codex:
-      return 'GPT-5.3 Codex'
-    case getModelStrings().gpt54mini:
-      return 'GPT-5.4 Mini'
     default:
       return null
   }
@@ -648,15 +635,10 @@ export function getMarketingNameForModel(modelId: string): string | undefined {
   if (canonical.includes('claude-3-5-haiku')) {
     return 'Claude 3.5 Haiku'
   }
-  // OpenAI Codex models
-  if (canonical.includes('gpt-5.4-mini')) {
-    return 'GPT-5.4 Mini'
-  }
-  if (canonical.includes('gpt-5.4')) {
-    return 'GPT-5.4'
-  }
-  if (canonical.includes('gpt-5.3-codex')) {
-    return 'GPT-5.3 Codex'
+  // OpenAI/Codex models
+  const openAIModel = getOpenAIModelMetadata(canonical)
+  if (openAIModel) {
+    return openAIModel.marketingName
   }
 
   return undefined

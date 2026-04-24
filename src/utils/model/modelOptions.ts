@@ -7,6 +7,7 @@ import {
   isTeamPremiumSubscriber,
 } from '../auth.js'
 import { getModelStrings } from './modelStrings.js'
+import { OPENAI_MODEL_METADATA } from './configs.js'
 import {
   COST_TIER_3_15,
   COST_HAIKU_35,
@@ -209,32 +210,16 @@ function getHaikuOption(): ModelOption {
     : getHaiku35Option()
 }
 
-// OpenAI Codex model options
-function getGpt54Option(): ModelOption {
-  return {
-    value: 'gpt-5.4',
-    label: 'GPT-5.4',
-    description: 'GPT-5.4 · Advanced reasoning and code generation',
-    descriptionForModel: 'GPT-5.4 - advanced reasoning and code generation capabilities',
-  }
-}
-
-function getGpt53CodexOption(): ModelOption {
-  return {
-    value: 'gpt-5.3-codex',
-    label: 'GPT-5.3 Codex',
-    description: 'GPT-5.3 Codex · Optimized for code generation and understanding',
-    descriptionForModel: 'GPT-5.3 Codex - specialized for code generation and understanding',
-  }
-}
-
-function getGpt54MiniOption(): ModelOption {
-  return {
-    value: 'gpt-5.4-mini',
-    label: 'GPT-5.4 Mini',
-    description: 'GPT-5.4 Mini · Fast and efficient for simple tasks',
-    descriptionForModel: 'GPT-5.4 Mini - fast and efficient for simple coding tasks',
-  }
+// OpenAI/Codex model options
+function getOpenAIModelOptions(): ModelOption[] {
+  return Object.values(OPENAI_MODEL_METADATA)
+    .filter(model => model.showInModelPicker)
+    .map(model => ({
+      value: model.id,
+      label: model.label,
+      description: model.description,
+      descriptionForModel: model.descriptionForModel,
+    }))
 }
 
 function getMaxOpusOption(fastMode = false): ModelOption {
@@ -318,12 +303,7 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
 
   // Codex subscribers get OpenAI model options
   if (isCodexSubscriber()) {
-    return [
-      getDefaultOptionForUser(),
-      getGpt54Option(),
-      getGpt53CodexOption(),
-      getGpt54MiniOption(),
-    ]
+    return [getDefaultOptionForUser(), ...getOpenAIModelOptions()]
   }
 
   if (isClaudeAISubscriber()) {

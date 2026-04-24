@@ -3,6 +3,18 @@ import type { APIProvider } from './providers.js'
 
 export type ModelConfig = Record<APIProvider, ModelName>
 
+export interface OpenAIModelMetadata {
+  id: ModelName
+  label: string
+  description: string
+  descriptionForModel: string
+  displayName: string
+  marketingName: string
+  family: 'general' | 'codex'
+  showInModelPicker: boolean
+  supportedInCodexAdapter: boolean
+}
+
 // @[MODEL LAUNCH]: Add a new CLAUDE_*_CONFIG constant here. Double check the correct model strings
 // here since the pattern may change.
 
@@ -94,7 +106,15 @@ export const CLAUDE_SONNET_4_6_CONFIG = {
   openai: 'claude-sonnet-4-6',
 } as const satisfies ModelConfig
 
-// OpenAI Codex models
+// OpenAI/Codex models
+export const GPT_5_5_CONFIG = {
+  firstParty: 'gpt-5.5',
+  bedrock: 'gpt-5.5',
+  vertex: 'gpt-5.5',
+  foundry: 'gpt-5.5',
+  openai: 'gpt-5.5',
+} as const satisfies ModelConfig
+
 export const GPT_5_4_CONFIG = {
   firstParty: 'gpt-5.4',
   bedrock: 'gpt-5.4',
@@ -119,6 +139,119 @@ export const GPT_5_4_MINI_CONFIG = {
   openai: 'gpt-5.4-mini',
 } as const satisfies ModelConfig
 
+export const OPENAI_MODEL_METADATA = {
+  gpt55: {
+    id: 'gpt-5.5',
+    label: 'GPT-5.5',
+    description: 'GPT-5.5 · Latest general-purpose OpenAI model',
+    descriptionForModel: 'GPT-5.5 - latest general-purpose OpenAI model',
+    displayName: 'GPT 5.5',
+    marketingName: 'GPT-5.5',
+    family: 'general',
+    showInModelPicker: true,
+    supportedInCodexAdapter: true,
+  },
+  gpt54: {
+    id: 'gpt-5.4',
+    label: 'GPT-5.4',
+    description: 'GPT-5.4 · Advanced reasoning and code generation',
+    descriptionForModel: 'GPT-5.4 - advanced reasoning and code generation capabilities',
+    displayName: 'GPT 5.4',
+    marketingName: 'GPT-5.4',
+    family: 'general',
+    showInModelPicker: true,
+    supportedInCodexAdapter: true,
+  },
+  gpt54mini: {
+    id: 'gpt-5.4-mini',
+    label: 'GPT-5.4 Mini',
+    description: 'GPT-5.4 Mini · Fast and efficient for simple tasks',
+    descriptionForModel: 'GPT-5.4 Mini - fast and efficient for simple coding tasks',
+    displayName: 'GPT 5.4 Mini',
+    marketingName: 'GPT-5.4 Mini',
+    family: 'general',
+    showInModelPicker: true,
+    supportedInCodexAdapter: true,
+  },
+  gpt53codex: {
+    id: 'gpt-5.3-codex',
+    label: 'GPT-5.3 Codex',
+    description: 'GPT-5.3 Codex · Optimized for code generation and understanding',
+    descriptionForModel: 'GPT-5.3 Codex - specialized for code generation and understanding',
+    displayName: 'GPT 5.3 Codex',
+    marketingName: 'GPT-5.3 Codex',
+    family: 'codex',
+    showInModelPicker: true,
+    supportedInCodexAdapter: true,
+  },
+  gpt52codex: {
+    id: 'gpt-5.2-codex',
+    label: 'GPT-5.2 Codex',
+    description: 'Frontier agentic coding model',
+    descriptionForModel: 'GPT-5.2 Codex - frontier agentic coding model',
+    displayName: 'Codex 5.2',
+    marketingName: 'Codex 5.2',
+    family: 'codex',
+    showInModelPicker: false,
+    supportedInCodexAdapter: true,
+  },
+  gpt51codex: {
+    id: 'gpt-5.1-codex',
+    label: 'GPT-5.1 Codex',
+    description: 'Codex coding model',
+    descriptionForModel: 'GPT-5.1 Codex - codex coding model',
+    displayName: 'Codex 5.1',
+    marketingName: 'Codex 5.1',
+    family: 'codex',
+    showInModelPicker: false,
+    supportedInCodexAdapter: true,
+  },
+  gpt51codexmini: {
+    id: 'gpt-5.1-codex-mini',
+    label: 'GPT-5.1 Codex Mini',
+    description: 'Fast Codex model',
+    descriptionForModel: 'GPT-5.1 Codex Mini - fast Codex model',
+    displayName: 'Codex 5.1 Mini',
+    marketingName: 'Codex 5.1 Mini',
+    family: 'codex',
+    showInModelPicker: false,
+    supportedInCodexAdapter: true,
+  },
+  gpt51codexmax: {
+    id: 'gpt-5.1-codex-max',
+    label: 'GPT-5.1 Codex Max',
+    description: 'Max Codex model',
+    descriptionForModel: 'GPT-5.1 Codex Max - max Codex model',
+    displayName: 'Codex 5.1 Max',
+    marketingName: 'Codex 5.1 Max',
+    family: 'codex',
+    showInModelPicker: false,
+    supportedInCodexAdapter: true,
+  },
+  gpt52: {
+    id: 'gpt-5.2',
+    label: 'GPT-5.2',
+    description: 'GPT-5.2',
+    descriptionForModel: 'GPT-5.2',
+    displayName: 'GPT 5.2',
+    marketingName: 'GPT-5.2',
+    family: 'general',
+    showInModelPicker: false,
+    supportedInCodexAdapter: true,
+  },
+} as const satisfies Record<string, OpenAIModelMetadata>
+
+export type OpenAIModelKey = keyof typeof OPENAI_MODEL_METADATA
+export type OpenAIModelId = (typeof OPENAI_MODEL_METADATA)[OpenAIModelKey]['id']
+export const OPENAI_MODEL_LIST = Object.values(OPENAI_MODEL_METADATA)
+export const OPENAI_MODEL_ID_SET = new Set<ModelName>(
+  OPENAI_MODEL_LIST.map(model => model.id),
+)
+
+export function getOpenAIModelMetadata(model: string): OpenAIModelMetadata | null {
+  return OPENAI_MODEL_LIST.find(metadata => metadata.id === model) ?? null
+}
+
 // @[MODEL LAUNCH]: Register the new config here.
 export const ALL_MODEL_CONFIGS = {
   haiku35: CLAUDE_3_5_HAIKU_CONFIG,
@@ -132,7 +265,8 @@ export const ALL_MODEL_CONFIGS = {
   opus41: CLAUDE_OPUS_4_1_CONFIG,
   opus45: CLAUDE_OPUS_4_5_CONFIG,
   opus46: CLAUDE_OPUS_4_6_CONFIG,
-  // OpenAI Codex models
+  // OpenAI/Codex models
+  gpt55: GPT_5_5_CONFIG,
   gpt54: GPT_5_4_CONFIG,
   gpt53codex: GPT_5_3_CODEX_CONFIG,
   gpt54mini: GPT_5_4_MINI_CONFIG,
