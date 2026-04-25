@@ -29,7 +29,10 @@ import {
   isNonCustomOpusModel,
 } from 'src/utils/model/model.js'
 import { getModelStrings } from 'src/utils/model/modelStrings.js'
-import { getAPIProvider } from 'src/utils/model/providers.js'
+import {
+  getAPIProvider,
+  isCustomOpenAICompatibleProvider,
+} from 'src/utils/model/providers.js'
 import { getIsNonInteractiveSession } from '../../bootstrap/state.js'
 import {
   API_PDF_MAX_PAGES,
@@ -422,6 +425,26 @@ export function extractUnknownErrorFormat(value: unknown): string | undefined {
   return undefined
 }
 
+function extractOpenAICompatibleErrorMessage(error: APIError): string {
+  const body = error.error as unknown
+  if (body && typeof body === 'object') {
+    const outer = body as Record<string, unknown>
+    const nested = outer.error
+    if (nested && typeof nested === 'object') {
+      const message = (nested as Record<string, unknown>).message
+      if (typeof message === 'string' && message.trim()) {
+        return message
+      }
+    }
+    const message = outer.message
+    if (typeof message === 'string' && message.trim()) {
+      return message
+    }
+  }
+
+  return error.message.replace(/^\d+\s+/, '')
+}
+
 export function getAssistantMessageFromError(
   error: unknown,
   model: string,
@@ -430,6 +453,17 @@ export function getAssistantMessageFromError(
     messagesForAPI?: (UserMessage | AssistantMessage)[]
   },
 ): AssistantMessage {
+  if (isCustomOpenAICompatibleProvider() && error instanceof APIError) {
+    return createAssistantAPIErrorMessage({
+      content: `${API_ERROR_MESSAGE_PREFIX}: OpenAI-compatible provider rejected the request (${error.status ?? 'unknown'}): ${extractOpenAICompatibleErrorMessage(error)}`,
+      error: error.status === 401 || error.status === 403
+        ? 'authentication_failed'
+        : error.status === 429
+          ? 'rate_limit'
+          : 'invalid_request',
+    })
+  }
+
   // Check for SDK timeout errors
   if (
     error instanceof APIConnectionTimeoutError ||

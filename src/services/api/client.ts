@@ -22,6 +22,7 @@ import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
+  isCustomOpenAICompatibleProvider,
 } from 'src/utils/model/providers.js'
 import { getProxyFetchOptions } from 'src/utils/proxy.js'
 import {
@@ -36,6 +37,7 @@ import {
   isEnvTruthy,
 } from '../../utils/envUtils.js'
 import { createCodexFetch } from './codex-fetch-adapter.js'
+import { createOpenAICompatibleFetch } from './openai-compatible-fetch-adapter.js'
 
 /**
  * Environment variables for different client types:
@@ -303,6 +305,17 @@ export async function getAnthropicClient({
     }
     // we have always been lying about the return type - this doesn't support batching or models
     return new AnthropicVertex(vertexArgs) as unknown as Anthropic
+  }
+
+  if (isCustomOpenAICompatibleProvider()) {
+    const openAICompatibleFetch = createOpenAICompatibleFetch()
+    const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
+      apiKey: 'arc-openai-compatible-placeholder',
+      ...ARGS,
+      fetch: openAICompatibleFetch as unknown as typeof globalThis.fetch,
+      ...(isDebugToStdErr() && { logger: createStderrLogger() }),
+    }
+    return new Anthropic(clientConfig)
   }
 
   // ── Codex (OpenAI) provider via fetch adapter ─────────────────────

@@ -11,7 +11,10 @@ import { isAwsCredentialsProviderError } from 'src/utils/aws.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logError } from 'src/utils/log.js'
 import { createSystemAPIErrorMessage } from 'src/utils/messages.js'
-import { getAPIProviderForStatsig } from 'src/utils/model/providers.js'
+import {
+  getAPIProviderForStatsig,
+  isCustomOpenAICompatibleProvider,
+} from 'src/utils/model/providers.js'
 import {
   clearApiKeyHelperCache,
   clearAwsCredentialsCache,
@@ -257,6 +260,17 @@ export async function* withRetry<T>(
         `API error (attempt ${attempt}/${maxRetries + 1}): ${error instanceof APIError ? `${error.status} ${error.message}` : errorMessage(error)}`,
         { level: 'error' },
       )
+
+      if (
+        isCustomOpenAICompatibleProvider() &&
+        error instanceof APIError &&
+        error.status !== undefined &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        shouldFailFastForCustomOpenAICompatibleError(error)
+      ) {
+        throw new CannotRetryError(error, retryContext)
+      }
 
       // Fast mode fallback: on 429/529, either wait and retry (short delays)
       // or fall back to standard speed (long delays) to avoid cache thrashing.
@@ -525,6 +539,15 @@ function getRetryAfter(error: unknown): string | null {
       ((error as APIError).headers as Headers)?.get?.('retry-after')) ??
     null
   )
+}
+
+function shouldFailFastForCustomOpenAICompatibleError(error: APIError): boolean {
+  if (error.status !== 429) {
+    return true
+  }
+
+  const retryAfterMs = getRetryAfterMs(error)
+  return retryAfterMs === null || retryAfterMs >= SHORT_RETRY_THRESHOLD_MS
 }
 
 export function getRetryDelay(

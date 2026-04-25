@@ -16,7 +16,7 @@ import {
 } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import { checkOpus1mAccess, checkSonnet1mAccess } from './check1mAccess.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isCustomOpenAICompatibleProvider } from './providers.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import {
   getCanonicalName,
@@ -45,6 +45,16 @@ export type ModelOption = {
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
+  if (isCustomOpenAICompatibleProvider()) {
+    const currentModel = process.env.ARC_MODEL || 'custom'
+    return {
+      value: null,
+      label: 'Default (recommended)',
+      description: `Use the configured OpenAI-compatible model (${currentModel})`,
+      descriptionForModel: `OpenAI-compatible model (${currentModel})`,
+    }
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     const currentModel = renderDefaultModelSetting(
       getDefaultMainLoopModelSetting(),
@@ -283,6 +293,23 @@ function getOpusPlanOption(): ModelOption {
 // @[MODEL LAUNCH]: Update the model picker lists below to include/reorder options for the new model.
 // Each user tier (ant, Max/Team Premium, Pro/Team Standard/Enterprise, PAYG 1P, PAYG 3P) has its own list.
 function getModelOptionsBase(fastMode = false): ModelOption[] {
+  if (isCustomOpenAICompatibleProvider()) {
+    const currentModel = process.env.ARC_MODEL
+    return [
+      getDefaultOptionForUser(),
+      ...(currentModel
+        ? [
+            {
+              value: currentModel,
+              label: currentModel,
+              description: `OpenAI-compatible model (${currentModel})`,
+              descriptionForModel: `OpenAI-compatible model (${currentModel})`,
+            },
+          ]
+        : []),
+    ]
+  }
+
   if (process.env.USER_TYPE === 'ant') {
     // Build options from antModels config
     const antModelOptions: ModelOption[] = getAntModels().map(m => ({

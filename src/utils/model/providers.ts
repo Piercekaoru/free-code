@@ -65,11 +65,18 @@ export function getAPIProvider(): APIProvider {
       ? 'vertex'
       : isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
         ? 'foundry'
-        : isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
+        : isCustomOpenAICompatibleProvider() ||
+            isEnvTruthy(process.env.CLAUDE_CODE_USE_OPENAI)
           ? 'openai'
           : hasSavedCodexOAuth()
             ? 'openai'
             : 'firstParty'
+}
+
+export function isCustomOpenAICompatibleProvider(): boolean {
+  return (
+    process.env.ARC_MODEL_PROVIDER?.toLowerCase() === 'openai-compatible'
+  )
 }
 
 export function getAPIProviderForStatsig(): AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS {

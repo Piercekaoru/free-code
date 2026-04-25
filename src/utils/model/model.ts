@@ -13,7 +13,6 @@ import {
   isMaxSubscriber,
   isProSubscriber,
   isTeamPremiumSubscriber,
-  isCodexSubscriber,
 } from '../auth.js'
 import { getAntModelOverrideConfig, resolveAntModel } from './antModels.js'
 import {
@@ -26,7 +25,7 @@ import { getModelStrings, resolveOverriddenModel } from './modelStrings.js'
 import { formatModelPricing, getOpus46CostTier } from '../modelCost.js'
 import { getSettings_DEPRECATED } from '../settings/settings.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
-import { getAPIProvider } from './providers.js'
+import { getAPIProvider, isCustomOpenAICompatibleProvider } from './providers.js'
 import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
@@ -70,7 +69,11 @@ export function getUserSpecifiedModelSetting(): ModelSetting | undefined {
     specifiedModel = modelOverride
   } else {
     const settings = getSettings_DEPRECATED() || {}
-    specifiedModel = process.env.ANTHROPIC_MODEL || settings.model || undefined
+    specifiedModel =
+      process.env.ANTHROPIC_MODEL ||
+      (isCustomOpenAICompatibleProvider() ? process.env.ARC_MODEL : undefined) ||
+      settings.model ||
+      undefined
   }
 
   // Ignore the user-specified model if it's not in the availableModels allowlist.
@@ -180,6 +183,10 @@ export function getRuntimeMainLoopModel(params: {
  * @returns The default model setting to use
  */
 export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
+  if (isCustomOpenAICompatibleProvider() && process.env.ARC_MODEL) {
+    return process.env.ARC_MODEL
+  }
+
   if (isCodexSubscriber()) {
     return getModelStrings().gpt53codex
   }
@@ -300,6 +307,10 @@ export function getCanonicalName(fullModelName: ModelName): ModelShortName {
 export function getClaudeAiUserDefaultModelDescription(
   fastMode = false,
 ): string {
+  if (isCustomOpenAICompatibleProvider()) {
+    return `OpenAI-compatible model · ${process.env.ARC_MODEL ?? 'custom'}`
+  }
+
   if (isCodexSubscriber()) {
     const defaultModel = getOpenAIModelMetadata(getDefaultMainLoopModelSetting())
     return defaultModel?.description ?? 'GPT-5.3 Codex · Optimized for code generation and understanding'

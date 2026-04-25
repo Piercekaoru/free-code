@@ -4,6 +4,7 @@ import type { LogOption } from '../types/logs.js'
 import { getSubscriptionName, isClaudeAISubscriber, isCodexSubscriber } from './auth.js'
 import { getCwd } from './cwd.js'
 import { getDisplayPath } from './file.js'
+import { isCustomOpenAICompatibleProvider } from './model/providers.js'
 import {
   truncate,
   truncateToWidth,
@@ -258,7 +259,9 @@ export function getLogoDisplayData(): {
     : displayPath
   const billingType = isClaudeAISubscriber()
     ? getSubscriptionName()
-    : isCodexSubscriber()
+    : isCustomOpenAICompatibleProvider()
+      ? 'OpenAI-compatible API'
+      : isCodexSubscriber()
       ? 'Codex API Billing'
       : 'API Usage Billing'
   const agentName = getInitialSettings().agent
